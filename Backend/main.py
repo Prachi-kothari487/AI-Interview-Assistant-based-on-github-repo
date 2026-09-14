@@ -17,6 +17,17 @@ from sqlalchemy.orm import Session
 
 from database.connection import engine, get_db
 
+from fastapi import FastAPI
+from pydantic import BaseModel
+import requests
+
+from langchain_community.document_loaders import TextLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+
+
+
 from database.models import (
     Project,
     ProjectFile,
@@ -79,10 +90,7 @@ def add_github_repository(
 
     try:
 
-        # -----------------------------
-        # 1. Clone GitHub Repository
-        # -----------------------------
-
+        
         base_dir = "uploaded_projects"
 
         os.makedirs(base_dir, exist_ok=True)
@@ -99,17 +107,13 @@ def add_github_repository(
             project_dir
         )
 
-        # -----------------------------
-        # 2. Analyze Repository
-        # -----------------------------
+       
 
         analysis = analyze_project_structure(
             project_dir
         )
 
-        # -----------------------------
-        # 3. Create Project
-        # -----------------------------
+        
 
         project_name = os.path.basename(
             github_url.rstrip("/")
@@ -129,10 +133,7 @@ def add_github_repository(
 
         db.refresh(project)
 
-        # -----------------------------
-        # 4. Save Project Files
-        # -----------------------------
-
+        
         files = analysis[
             "files_and_folders"
         ]["files"]
@@ -188,10 +189,7 @@ def add_github_repository(
 
             db.add(project_file)
 
-        # -----------------------------
-        # 5. Save Programming Languages
-        # -----------------------------
-
+        
         languages = analysis[
             "programming_languages"
         ]["languages"]
@@ -206,10 +204,7 @@ def add_github_repository(
 
             db.add(technology)
 
-        # -----------------------------
-        # 6. Save Dependencies
-        # -----------------------------
-
+        
         dependencies = analysis[
             "dependencies"
         ]["dependencies"]
@@ -246,9 +241,7 @@ def add_github_repository(
 
                     db.add(technology)
 
-        # -----------------------------
-        # 7. Save Detected Databases
-        # -----------------------------
+        
 
         databases = analysis[
             "database"
@@ -264,9 +257,7 @@ def add_github_repository(
 
             db.add(technology)
 
-        # -----------------------------
-        # 8. Save Major Modules
-        # -----------------------------
+       
 
         modules = analysis[
             "major_modules"
@@ -282,9 +273,7 @@ def add_github_repository(
 
             db.add(project_module)
 
-        # -----------------------------
-        # 9. Mark Project Completed
-        # -----------------------------
+        
 
         project.status = "completed"
 
@@ -292,9 +281,7 @@ def add_github_repository(
 
         db.refresh(project)
 
-        # -----------------------------
-        # 10. Return Response
-        # -----------------------------
+        
 
         return {
             "success": True,
@@ -399,6 +386,106 @@ async def upload_project(
 
 app.include_router(auth_router)
 
+loader = TextLoader(
+    "C:\\predictors\\llma qwen3\\Backend\\uploaded_projects\\269c966d-1810-4cde-a5de-67e067622ef1\\src\\App.jsx",
+    encoding="utf-8"
+)
+
+documents = loader.load()
+
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=50
+)
+
+docs = splitter.split_documents(documents)
+
+
+embeddings = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2"
+)
+
+
+vectorstore = FAISS.from_documents(
+    docs,
+    embeddings
+)
+
+
+retriever = vectorstore.as_retriever(
+    search_kwargs={
+        "k": 3
+    }
+)
+
+
+class Data(BaseModel):
+    prompt: str
+
+
+@app.post("/api/projects/predict")
+def predict(data: Data):
+
+    docs = retriever.invoke(
+        data.prompt
+    )
+
+    context = "\n\n".join(
+        [
+            doc.page_content
+            for doc in docs
+        ]
+    )
+
+    rag_prompt = f"""
+You are a Python technical interviewer and Python tutor.
+
+You are given Python code retrieved from a project.
+
+Your job is to analyze the provided code and answer the user's request.
+
+IMPORTANT RULES:
+
+1. Use the provided code as your main source of information.
+2. Do not invent functions, classes, variables, libraries, or functionality.
+3. If the requested information is not available in the provided code, clearly say:
+"This information is not available in the provided code."
+4. If the user asks for interview questions, generate questions based on Python concepts actually present in the retrieved code.
+5. Questions can include Python fundamentals, code understanding, output prediction, debugging, time complexity, space complexity, functions, classes, objects, lists, dictionaries, sets, tuples, exception handling, file handling, and OOP.
+6. If the user asks for an explanation, explain the code clearly and step by step.
+7. If the user asks for output, explain why that output occurs.
+8. Keep the answer beginner-friendly.
+
+PYTHON CODE:
+
+{context}
+
+USER REQUEST:
+
+{data.prompt}
+
+ANSWER:
+"""
+
+    payload = {
+        "model": "qwen3:1.7b",
+        "prompt": rag_prompt,
+        "stream": False
+    }
+
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json=payload
+    )
+
+    result = response.json()
+
+    return {
+        "question": data.prompt,
+        "answer": result["response"],
+        
+    }
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):

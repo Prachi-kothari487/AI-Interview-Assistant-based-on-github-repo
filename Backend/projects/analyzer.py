@@ -1,7 +1,6 @@
 import os
 import json
 
-# Files/folders that should not be analyzed
 IGNORED_DIRECTORIES = {
     ".git",
     "node_modules",
@@ -179,9 +178,6 @@ def detect_dependencies(repository_path: str):
 
                     continue
 
-            # -------------------------
-            # Python - requirements.txt
-            # -------------------------
 
             elif filename == "requirements.txt":
 
@@ -448,10 +444,6 @@ def detect_databases(repository_path: str):
 
     detected_databases = {}
 
-    # ------------------------------------------------
-    # Step 1: Check dependencies
-    # ------------------------------------------------
-
     dependencies_result = detect_dependencies(
         repository_path
     )
@@ -460,7 +452,7 @@ def detect_databases(repository_path: str):
         "dependencies"
     ].items():
 
-        # package.json returns dictionary
+        
         if isinstance(dependency_data, dict):
 
             dependency_names = {
@@ -468,7 +460,7 @@ def detect_databases(repository_path: str):
                 for name in dependency_data.keys()
             }
 
-        # requirements.txt returns list
+       
         elif isinstance(dependency_data, list):
 
             dependency_names = {
@@ -494,9 +486,6 @@ def detect_databases(repository_path: str):
                         "indicator": dependency
                     }
 
-    # ------------------------------------------------
-    # Step 2: Check source-code keywords
-    # ------------------------------------------------
 
     for root, directories, filenames in os.walk(repository_path):
 
@@ -510,7 +499,7 @@ def detect_databases(repository_path: str):
 
             extension = os.path.splitext(filename)[1].lower()
 
-            # Only inspect source/config files
+           
             allowed_extensions = {
                 ".js",
                 ".jsx",
